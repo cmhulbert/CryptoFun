@@ -1,8 +1,11 @@
 import gdax
 from datetime import timedelta, date
-from time import sleep
+from datetime import datetime as DT
+from time import time, sleep
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from pylab import *
 
 def getHistoricRate(crypto='BTC', currency='USD',  granularity=200, start=None, end=None):
     client = gdax.PublicClient()
@@ -47,7 +50,7 @@ class OrderBook(object):
         self.client = gdax.PublicClient()
         self.currency_pair = currencyPair
         self.plt = plt
-        # self.time =
+        self.time = time()
 
         self.update(1)
 
@@ -56,28 +59,35 @@ class OrderBook(object):
         self.updateOrderBook()
             # sleep(Hz)
 
+    def timeStamptoUTCDateTime(self, timestamp):
+        date_time = DT.utcfromtimestamp(timestamp)
+        return date_time.__str__()
+
 
     def formatOrderbook(self, orderbook):
-        cumulative_volume_data_list = []
+        volume_data_list = []
         tempRow = []
         for order in orderbook:
             tempRow = []
             tempRow.append(float(order[0]))
             try:
-                tempRow.append(float(order[1]) + cumulative_volume_data_list[-1][-1])
+                tempRow.append(float(order[1]) + volume_data_list[-1][-1])
             except:
                 tempRow.append(float(order[1]))
-            cumulative_volume_data_list.append(tempRow)
-        cumulative_volume_data = pd.DataFrame(cumulative_volume_data_list, columns=['price', 'cumulative_volume'])
-        return cumulative_volume_data
+            tempRow.append(float(order[1]))
+            volume_data_list.append(tempRow)
+        volume_data = pd.DataFrame(volume_data_list, columns=['price', 'cumulative_volume', 'volume'])
+        volume_data['time'] = self.time
+        return volume_data
 
     def updateOrderBook(self):
+        self.time = self.timeStamptoUTCDateTime(time())
         orderBook = self.client.get_product_order_book(self.currency_pair, level=3)
         self.sells = self.formatOrderbook(orderBook['asks'])
         self.buys = self.formatOrderbook(orderBook['bids'])
 
 
-    def plot(self, minprice=None, maxprice=None, fraction=1):
+    def plot(self, fraction=1, minprice=None, maxprice=None):
         fig, ax = plt.subplots()
         if fraction== 'all':
             ax.plot(self.buys.price, self.buys.cumulative_volume)
@@ -90,9 +100,78 @@ class OrderBook(object):
                 buys = self.buys[self.buys.price >= minprice]
                 sells = self.sells[self.sells.price <= maxprice]
         # return buys, sells
-        ax.plot(buys.price, buys.cumulative_volume)
-        ax.plot(sells.price, sells.cumulative_volume)
-        return fig
+        line1, = ax.plot(sells.price, sells.cumulative_volume, c='red')
+        line2, = ax.plot(buys.price, buys.cumulative_volume, c='green')
+        # ax.fill(buys.price, buys.cumulative_volume, 'green', sells.price, sells.cumulative_volume, red')
+        labels = ['buys', 'sells']
+        lines, _ = ax.get_legend_handles_labels()
+        ax.legend(lines, labels, loc='best')
+        return fig, line1, line2
+
+    def pylabPlot(self, fraction=.02, interval=1):
+        ion()
+        buys = self.buys[self.buys.price >= self.buys.price.min() + self.buys.price.max() * (1 - fraction)]
+        sells = self.sells[self.sells.price <= self.sells.price.min() + self.buys.price.max() * fraction]
+        line1, line2 = plot(buys.price, buys.cumulative_volume, 'g', sells.price, sells.cumulative_volume, 'r')
+        line1.axes.set_xlim(buys.price.min(), sells.price.max())
+        line1.axes.set_ylim(0, buys.cumulative_volume.max())
+        line1.set_label('Buys')
+        line2.set_label('Sells')
+        legend()
+        grid()
+        draw()
+        return line1, line2
+
+        # for i in range(50):
+        #     sleep(interval)
+        #
+        #     self.updateOrderBook()
+        #     buys = self.buys[self.buys.price >= self.buys.price.min() + self.buys.price.max() * (1 - fraction)]
+        #     sells = self.sells[self.sells.price <= self.sells.price.min() + self.buys.price.max() * fraction]
+        #     line1.set_xdata = buys.price
+        #     line1.set_ydata = buys.cumulative_volume
+        #     line2.set_xdata = sells.price
+        #     line2.set_ydata = sells.cumulative_volume
+        #     draw()
+
+
+    def updatePlot(self, line1, line2, fig, fraction=.005):
+        self.updateOrderBook()
+        fraction = .02
+        buys = self.buys[self.buys.price >= self.buys.price.min() + self.buys.price.max() * (1 - fraction)]
+        sells = self.sells[self.sells.price <= self.sells.price.min() + self.buys.price.max() * fraction]
+        line1.set_data(buys.price, buys.cumulative_volume)
+        line2.set_data(sells.price, sells.cumulative_volume)
+        # fig.canvas.draw()
+        return line1, line2, fig
+
+
+    def logVolumeData(self, outputFile, log_time=60, loops=10):
+        prev_df = None
+        try:
+            while True:
+                print('starting')
+                log_list = []
+                for i in range(loops):
+                    self.updateOrderBook()
+                    log_list.append([self.buys, self.sells])
+                    sleep(log_time)
+                log_df = pd.DataFrame(log_list, columns=['buys', 'sells'])
+                if prev_df is None:
+                    log_df.to_csv(outputFile+'.tsv', sep='\t', index=False)
+                else:
+                    log_df = prev_df.append(log_df)
+                    log_df.to_csv(outputFile + '.tsv', sep='\t', index=False, header=True)
+                prev_df = log_df.copy(deep=True)
+                print('Done!')
+        except KeyboardInterrupt as e:
+            log_df = pd.DataFrame(log_list, columns=['buys', 'sells'])
+            if prev_df is None:
+                log_df.to_csv(outputFile + '.tsv', sep='\t', index=False)
+            else:
+                log_df = prev_df.append(log_df)
+                log_df.to_csv(outputFile + '.tsv', sep='\t', index=False)
+            print('Logging Canceled"')
 
 
 if __name__=='__main__':
