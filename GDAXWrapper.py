@@ -85,6 +85,10 @@ class OrderBook(object):
         orderBook = self.client.get_product_order_book(self.currency_pair, level=3)
         self.sells = self.formatOrderbook(orderBook['asks'])
         self.buys = self.formatOrderbook(orderBook['bids'])
+        self.aggregated = pd.DataFrame(self.client.get_product_order_book(self.currency_pair, level=2), columns=['bids', 'asks', 'sequence'])
+        self.bids = pd.DataFrame(list(self.aggregated.bids), columns=['price', 'volume', 'orders'])
+        self.asks = pd.DataFrame(list(self.aggregated.asks), columns=['price', 'volume', 'orders'])
+
 
 
     def plot(self, fraction=1, minprice=None, maxprice=None):
