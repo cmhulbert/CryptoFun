@@ -108,32 +108,6 @@ class OrderBook(object):
         ax.legend(lines, labels, loc='best')
         return fig, line1, line2
 
-    def pylabPlot(self, fraction=.02, interval=1):
-        ion()
-        buys = self.buys[self.buys.price >= self.buys.price.min() + self.buys.price.max() * (1 - fraction)]
-        sells = self.sells[self.sells.price <= self.sells.price.min() + self.buys.price.max() * fraction]
-        line1, line2 = plot(buys.price, buys.cumulative_volume, 'g', sells.price, sells.cumulative_volume, 'r')
-        line1.axes.set_xlim(buys.price.min(), sells.price.max())
-        line1.axes.set_ylim(0, buys.cumulative_volume.max())
-        line1.set_label('Buys')
-        line2.set_label('Sells')
-        legend()
-        grid()
-        draw()
-        return line1, line2
-
-        # for i in range(50):
-        #     sleep(interval)
-        #
-        #     self.updateOrderBook()
-        #     buys = self.buys[self.buys.price >= self.buys.price.min() + self.buys.price.max() * (1 - fraction)]
-        #     sells = self.sells[self.sells.price <= self.sells.price.min() + self.buys.price.max() * fraction]
-        #     line1.set_xdata = buys.price
-        #     line1.set_ydata = buys.cumulative_volume
-        #     line2.set_xdata = sells.price
-        #     line2.set_ydata = sells.cumulative_volume
-        #     draw()
-
 
     def updatePlot(self, line1, line2, fig, fraction=.005):
         self.updateOrderBook()
