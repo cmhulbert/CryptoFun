@@ -3,19 +3,20 @@ from datetime import timedelta, date
 from datetime import datetime as DT
 from time import time, sleep
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+from copy import deepcopy
+import numpy as np
+# import matplotlib.pyplot as plt
+# import matplotlib.animation as animation
 from pylab import *
 
 def getHistoricRate(crypto='BTC', currency='USD',  granularity=200, start=None, end=None):
     client = gdax.PublicClient()
     call_letters = str(crypto + '-' + currency)
-    print(call_letters, start, end)
+    # print(call_letters, start, end)
     if start is None:
-        if end is None:
-            data = client.get_product_historic_rates(call_letters, granularity=granularity)
-        else:
-            data = client.get_product_historic_rates(call_letters,start=start, granularity=granularity)
+        data = client.get_product_historic_rates(call_letters, granularity=granularity)
+    elif end is None:
+        data = client.get_product_historic_rates(call_letters,start=start, granularity=granularity)
     else:
         data = client.get_product_historic_rates(call_letters, start=start, end=end, granularity=granularity)
     return data
@@ -33,17 +34,150 @@ def bulkHistoryicalRate(crypto='BTC', currency='USD', start=None, end=None, gran
     dateGen = dayRange(start, end)
     Historic_data = []
     for day in dateGen:
+        print(day)
         day1 = str(day)
+        day2 = day1 + 'T12:00:00'
+        day_rate = getHistoricRate(crypto, currency, granularity=granularity, start=day1, end=day2)
+        # print(day_rate)
+        if type(day_rate) is list :
+            Historic_data += day_rate
+        else:
+            sleep(.1)
+            day_rate = getHistoricRate(crypto, currency, granularity=granularity, start=day1, end=day2)
+            if type(day_rate) is list :
+                Historic_data += day_rate
+            else:
+                print(day_rate)
+        print(str(day)+'T12:00:00')
+        day1 = str(day) + 'T12:00:00'
         day2 = str(day + timedelta(1))
-        data = getHistoricRate(crypto, currency, granularity=granularity, start=day1, end=day2)
-        print(data)
-        try:
-            data = [x.insert(0, day1) for x in data]
-        except Exception as error:
-            print(error)
-        Historic_data += data
-    return Historic_data
+        day_rate = getHistoricRate(crypto, currency, granularity=granularity, start=day1, end=day2)
+        # print(day_rate)
+        if type(day_rate) is list:
+            Historic_data += day_rate
+        else:
+            sleep(.1)
+            day_rate = getHistoricRate(crypto, currency, granularity=granularity, start=day1, end=day2)
+            if type(day_rate) is list:
+                Historic_data += day_rate
+            else:
+                print(day_rate)
+    dataframe = pd.DataFrame(Historic_data, columns=['time', 'low', 'high', 'open', 'close', 'volume'], index=None)
+    dataframe = dataframe.sort_values(by='time')
+    return dataframe
 
+
+def simulateModel(dataframe, window=241, principal=1, topFraction=.001, bottomFraction=.001, tradeFraction=.9, by='open'):
+    ## Start with equal value of both currency
+    currency1 = principal
+    currency2 = principal*dataframe.iloc[0][by]
+    currency_change = [[dataframe.iloc[0].time, currency1, currency2]]
+    sums = [currency1*dataframe.iloc[0][by] + currency2]
+    ## initial fraction to trade with when a condition is met
+    tradeFraction = tradeFraction
+    previous_mean = None
+    update_interval = 0 ## Number of entries before to check mean change
+    ## move through timeseries data one value at a time
+    values = [currency1 + currency2 / dataframe.iloc[0][by].mean()]
+    for i in range(int(len(dataframe)-window-1)):
+        if previous_mean is None:
+            start = int(1)
+            end = int(start + window)
+            window_df = dataframe.iloc[start:end]
+            window_mean = window_df[by].mean()
+            previous_mean = window_mean
+            continue
+        if update_interval < window:
+            update_interval += 1
+            # values.append(currency1 + currency2 * window_df[by].mean())
+            continue
+        update_interval = 0
+        start = int(i + window +1)
+        end = int(start+window)
+        window_df = dataframe.iloc[start:end]
+        window_mean = window_df[by].mean()
+        if window_mean > previous_mean*(1+topFraction):
+            ## trade curr1 -> curr2
+            currency1 = currency1*(1-tradeFraction)
+            currency2 = currency2 + currency1*tradeFraction*window_df[by].mean()
+            #tradeFraction = tradeFraction*.9
+            values.append(currency1 + currency2 / float(window_df[by].iloc[-1]))
+            currency_change.append([window_df.iloc[-1].time, currency1, currency2])
+            sums.append(currency1 * window_df.iloc[0][by] + currency2)
+            # print("Traded 1 for 2 at: " + window_df[by].mean() + '\tC1(%f)\tC2(%f)\tValue(%f)' % (currency1, currency2, currency1+currency2*window_df[by].mean()))
+            # print("1 for 2", '\tmean: ', window_df[by].mean(), '\tC1: ', currency1, '\tC2: ', currency2, '\tValue: ',
+            #       currency1 + currency2 * window_df[by].mean())
+        elif window_mean < previous_mean*(1-bottomFraction):
+            ## trade curr@ -> curr1
+            currency2 = currency2 * (1 - tradeFraction)
+            currency1 = currency1 + currency2*tradeFraction*(1.0/window_df[by].mean())
+            #tradeFraction = tradeFraction + (1-tradeFraction)*.1
+            values.append(currency1 + currency2 / float(window_df[by].iloc[-1]))
+            currency_change.append([window_df.iloc[-1].time, currency1, currency2])
+            sums.append(currency1 * window_df.iloc[0][by] + currency2)
+            # print("2 for 1", '\tmean: ', window_df[by].mean(), '\tC1: ', currency1, '\tC2: ', currency2, '\tValue: ',
+            #       currency1 + currency2 * window_df[by].mean())
+        else:
+            pass
+            # print('Nothing Traded')
+        # previous_mean = window_mean
+        # values.append(currency1 + currency2 * window_df[by].mean())
+    params = {'window':window, 'topFraction':topFraction, 'bottomFraction':bottomFraction, 'tradeFraction':tradeFraction}
+    values_df = pd.DataFrame(values)
+    sums_df = pd.DataFrame(sums)
+    currency_change_df = pd.DataFrame(currency_change, columns=['time', 'currency1', 'currency2'])
+    currency_change_df['value'] = values_df
+    currency_change_df['sums'] = sums_df
+    return currency_change_df, params
+
+
+def simulateGeneration(dataframe, params, generationSize=10, previous_best = 0.0):
+    best_values = pd.DataFrame([previous_best])
+    best_sums = pd.DataFrame([previous_best])
+    best_AUC = 0
+    best_parameters = None
+    # params['window'] = 100
+    best_currency_change = None
+    print("New Generation!")
+    NextGen = True
+    sibling_count = 0
+    local_sums = pd.DataFrame([0.0])
+    while NextGen:
+        sibling_count += 1
+        mutated_params = deepcopy(params)
+        # to_change = np.random.choice(list(mutated_params.keys()))
+        # mutated_params[to_change] = params[to_change] + np.random.choice([-1, 1]) * np.random.random()* .5 * params[to_change]
+        for j in params.keys():
+            mutate = np.random.choice([0,1])
+            if mutate:
+                mutated_params[j] = params[j] + np.random.choice([-1,1])*np.random.random()*params[j]
+        if mutated_params['window'] < 100:
+            mutated_params['window'] = 100
+        # mutated_params['window'] = 241#np.random.choice([400,500,600])
+        # mutated_params['window'] = np.random.choice([int(x*params['window']) for x  in [.5, .6, .7, .8, .9 , 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]])
+        currency_change, params = simulateModel(dataframe, window=mutated_params['window'],
+                                       topFraction=mutated_params['topFraction'],
+                                       bottomFraction=mutated_params['bottomFraction'],
+                                       tradeFraction=mutated_params['tradeFraction'])
+        values = currency_change['value']
+        sums = currency_change['sums']
+        print("Sibling %s: %s %s" % (sibling_count, round(float(values.iloc[-1]),5), round(float(best_values.iloc[-1]), 5)))
+        if float(values.iloc[-1]) > float(best_values.iloc[-1]):
+        # if float(values.mean()) > float(best_values.mean()):
+        #     print(sums.iloc[-1], best_sums.iloc[-1])
+            best_parameters = params
+            best_values = pd.DataFrame(values)
+            best_currency_change = currency_change
+            NextGen = False
+        elif float(values.iloc[-1]) > float(local_sums.iloc[-1]):
+            local_sums = values
+            params = mutated_params
+    return best_currency_change, best_parameters
+
+
+class WebsocketClient(object):
+    def __init__(self, currencyPair='ETH-BTC'):
+        self.client = gdax.WebsocketClient(url="wss://ws-feed.gdax.com", products=currencyPair)
 
 class OrderBook(object):
     def __init__(self, currencyPair='ETH-BTC'):
@@ -152,6 +286,26 @@ class OrderBook(object):
             print('Logging Canceled"')
 
 
+def main():
+    # o = OrderBook('BTC-USD')
+    # o.plot().show()
+    # l = getHistoricRate()
+    # o = bulkHistoryicalRate(crypto='ETH', currency='BTC', start=[2017, 1, 1], end=[2017, 2, 1], granularity=200)
+    o = pd.read_csv('test.csv', sep='\t')
+    o = o[o.time > int(o[o.open > .04].iloc[0].time)]
+    o_train = o.iloc[:int(len(o) * (2 / 3))]
+    o_validate = o.iloc[int(len(o) * (2 / 3)) + 1:]
+    trajectory, params = simulateModel(o_train, len(o) / 365)
+    trajectory, params = simulateGeneration(o_train, params)
+    # values, params = simulateGeneration(o_train, params)
+    # values, params = simulateGeneration(o_train, params)
+    # values, params = simulateGeneration(o_train, params)
+    # values, params = simulateGeneration(o_train, params)
+    # df.to_csv('values.df', header=None, index=None)
+    print('Done!')
+    return trajectory, params
+
 if __name__=='__main__':
-    o = OrderBook('BTC-USD')
-    o.plot().show()
+    # main()
+    bulkHistoryicalRate('ETH', 'BTC', (2016,1,1), (2016,1,2), granularity=100)
+    getHistoricRate(start='2015-01-01T12:00:00')
