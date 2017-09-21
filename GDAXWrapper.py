@@ -138,40 +138,44 @@ def simulateGeneration(dataframe, params, generationSize=10, previous_best = 0.0
     best_parameters = None
     # params['window'] = 100
     best_currency_change = None
-    print("New Generation!")
-    NextGen = True
-    sibling_count = 0
-    local_sums = pd.DataFrame([0.0])
-    while NextGen:
-        sibling_count += 1
-        mutated_params = deepcopy(params)
-        # to_change = np.random.choice(list(mutated_params.keys()))
-        # mutated_params[to_change] = params[to_change] + np.random.choice([-1, 1]) * np.random.random()* .5 * params[to_change]
-        for j in params.keys():
-            mutate = np.random.choice([0,1])
-            if mutate:
-                mutated_params[j] = params[j] + np.random.choice([-1,1])*np.random.random()*params[j]
-        if mutated_params['window'] < 100:
-            mutated_params['window'] = 100
-        # mutated_params['window'] = 241#np.random.choice([400,500,600])
-        # mutated_params['window'] = np.random.choice([int(x*params['window']) for x  in [.5, .6, .7, .8, .9 , 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]])
-        currency_change, params = simulateModel(dataframe, window=mutated_params['window'],
-                                       topFraction=mutated_params['topFraction'],
-                                       bottomFraction=mutated_params['bottomFraction'],
-                                       tradeFraction=mutated_params['tradeFraction'])
-        values = currency_change['value']
-        sums = currency_change['sums']
-        print("Sibling %s: %s %s" % (sibling_count, round(float(values.iloc[-1]),5), round(float(best_values.iloc[-1]), 5)))
-        if float(values.iloc[-1]) > float(best_values.iloc[-1]):
-        # if float(values.mean()) > float(best_values.mean()):
-        #     print(sums.iloc[-1], best_sums.iloc[-1])
-            best_parameters = params
-            best_values = pd.DataFrame(values)
-            best_currency_change = currency_change
-            NextGen = False
-        elif float(values.iloc[-1]) > float(local_sums.iloc[-1]):
-            local_sums = values
-            params = mutated_params
+    for i in range(generationSize):
+        print("New Generation! {}".format(i))
+        NextGen = True
+        sibling_count = 0
+        local_sums = pd.DataFrame([0.0])
+        while NextGen:
+            sibling_count += 1
+            mutated_params = deepcopy(params)
+            # to_change = np.random.choice(list(mutated_params.keys()))
+            # mutated_params[to_change] = params[to_change] + np.random.choice([-1, 1]) * np.random.random()* .5 * params[to_change]
+            for j in params.keys():
+                mutate = np.random.choice([0,1])
+                if mutate:
+                    mutated_params[j] = params[j] + np.random.choice([-1,1])*np.random.random()*params[j]
+            if mutated_params['window'] < 67:
+                mutated_params['window'] = 67
+            # mutated_params['window'] = 241#np.random.choice([400,500,600])
+            # mutated_params['window'] = np.random.choice([int(x*params['window']) for x  in [.5, .6, .7, .8, .9 , 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]])
+            currency_change, params = simulateModel(dataframe, window=mutated_params['window'],
+                                           topFraction=mutated_params['topFraction'],
+                                           bottomFraction=mutated_params['bottomFraction'],
+                                           tradeFraction=mutated_params['tradeFraction'])
+            values = currency_change['value']
+            sums = currency_change['sums']
+            print("Sibling %s: %s %s" % (sibling_count, round(float(values.iloc[-1]),5), round(float(best_values.iloc[-1]), 5)))
+            if float(values.iloc[-1]) > float(best_values.iloc[-1]):
+            # if float(values.mean()) > float(best_values.mean()):
+            #     print(sums.iloc[-1], best_sums.iloc[-1])
+                best_parameters = params
+                best_values = pd.DataFrame(values)
+                best_currency_change = currency_change
+                NextGen = False
+            elif float(values.iloc[-1]) > float(local_sums.iloc[-1]):
+                local_sums = values
+                params = mutated_params
+            if sibling_count > 99:
+                print(' Reached Sibling Max Limit.')
+                return best_currency_change, best_parameters
     return best_currency_change, best_parameters
 
 
@@ -204,10 +208,10 @@ class OrderBook(object):
         for order in orderbook:
             tempRow = []
             tempRow.append(float(order[0]))
-            try:
-                tempRow.append(float(order[1]) + volume_data_list[-1][-1])
-            except:
+            if len(volume_data_list) == 0:
                 tempRow.append(float(order[1]))
+            else:
+                tempRow.append(float(order[1]) + volume_data_list[-1][-2])
             tempRow.append(float(order[1]))
             volume_data_list.append(tempRow)
         volume_data = pd.DataFrame(volume_data_list, columns=['price', 'cumulative_volume', 'volume'])
@@ -225,7 +229,8 @@ class OrderBook(object):
 
 
 
-    def plot(self, fraction=1, minprice=None, maxprice=None):
+    def plot(self, fraction=1, minprice=None, maxprice=None, log=True, live=False):
+        plt.ion()
         fig, ax = plt.subplots()
         if fraction== 'all':
             ax.plot(self.buys.price, self.buys.cumulative_volume)
@@ -241,21 +246,36 @@ class OrderBook(object):
         line1, = ax.plot(sells.price, sells.cumulative_volume, c='red')
         line2, = ax.plot(buys.price, buys.cumulative_volume, c='green')
         # ax.fill(buys.price, buys.cumulative_volume, 'green', sells.price, sells.cumulative_volume, red')
-        labels = ['buys', 'sells']
+        labels = ['sells', 'buys']
         lines, _ = ax.get_legend_handles_labels()
         ax.legend(lines, labels, loc='best')
-        return fig, line1, line2
+        if log:
+            plt.yscale('log')
+        if live:
+            while True:
+                try:
+                    line1, line2, fig = self.updatePlot(line1, line2, fig, fraction=fraction)
+                except KeyboardInterrupt:
+                    break;
+        else:
+            return fig, line1, line2
 
 
     def updatePlot(self, line1, line2, fig, fraction=.005):
         self.updateOrderBook()
-        fraction = .02
-        buys = self.buys[self.buys.price >= self.buys.price.min() + self.buys.price.max() * (1 - fraction)]
-        sells = self.sells[self.sells.price <= self.sells.price.min() + self.buys.price.max() * fraction]
+        # fraction = .02
+        if fraction != 'all':
+            buys = self.buys[self.buys.price >= self.buys.price.min() + self.buys.price.max() * (1 - fraction)]
+            sells = self.sells[self.sells.price <= self.sells.price.min() + self.buys.price.max() * fraction]
+        else:
+            buys = self.buys
+            sells = self.sells
         line1.set_data(buys.price, buys.cumulative_volume)
         line2.set_data(sells.price, sells.cumulative_volume)
-        # fig.canvas.draw()
+        fig.canvas.draw()
         return line1, line2, fig
+
+
 
 
     def logVolumeData(self, outputFile, log_time=60, loops=10):
@@ -307,5 +327,6 @@ def main():
 
 if __name__=='__main__':
     # main()
-    bulkHistoryicalRate('ETH', 'BTC', (2016,1,1), (2016,1,2), granularity=100)
-    getHistoricRate(start='2015-01-01T12:00:00')
+    ob = OrderBook()
+    # bulkHistoryicalRate('ETH', 'BTC', (2016,1,1), (2016,1,2), granularity=100)
+    # getHistoricRate(start='2015-01-01T12:00:00')
