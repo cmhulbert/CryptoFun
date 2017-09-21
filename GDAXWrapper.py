@@ -78,7 +78,7 @@ def simulateModel(dataframe, window=241, principal=1, topFraction=.001, bottomFr
     previous_mean = None
     update_interval = 0 ## Number of entries before to check mean change
     ## move through timeseries data one value at a time
-    values = [currency1 + currency2 / dataframe.iloc[0][by].mean()]
+    values = [currency1 + currency2 / dataframe.iloc[0][by]]
     for i in range(int(len(dataframe)-window-1)):
         if previous_mean is None:
             start = int(1)
@@ -98,25 +98,29 @@ def simulateModel(dataframe, window=241, principal=1, topFraction=.001, bottomFr
         window_mean = window_df[by].mean()
         if window_mean > previous_mean*(1+topFraction):
             ## trade curr1 -> curr2
-            currency1 = currency1*(1-tradeFraction)
-            currency2 = currency2 + currency1*tradeFraction*window_df[by].mean()
+            new_currency1 = currency1*(1-tradeFraction)
+            new_currency2 = currency2 + currency1*tradeFraction*window_df[by].mean()
             #tradeFraction = tradeFraction*.9
-            values.append(currency1 + currency2 / float(window_df[by].iloc[-1]))
-            currency_change.append([window_df.iloc[-1].time, currency1, currency2])
-            sums.append(currency1 * window_df.iloc[0][by] + currency2)
+            values.append(new_currency1 + new_currency2 / float(window_df[by].iloc[-1]))
+            currency_change.append([window_df.iloc[-1].time, new_currency1, new_currency2])
+            sums.append(new_currency1 * window_df.iloc[0][by] + new_currency2)
             # print("Traded 1 for 2 at: " + window_df[by].mean() + '\tC1(%f)\tC2(%f)\tValue(%f)' % (currency1, currency2, currency1+currency2*window_df[by].mean()))
             # print("1 for 2", '\tmean: ', window_df[by].mean(), '\tC1: ', currency1, '\tC2: ', currency2, '\tValue: ',
             #       currency1 + currency2 * window_df[by].mean())
+            currency1 = new_currency1
+            currency2 = new_currency2
         elif window_mean < previous_mean*(1-bottomFraction):
             ## trade curr@ -> curr1
-            currency2 = currency2 * (1 - tradeFraction)
-            currency1 = currency1 + currency2*tradeFraction*(1.0/window_df[by].mean())
+            new_currency2 = currency2 * (1 - tradeFraction)
+            new_currency1 = currency1 + currency2*tradeFraction*(1.0/window_df[by].mean())
             #tradeFraction = tradeFraction + (1-tradeFraction)*.1
-            values.append(currency1 + currency2 / float(window_df[by].iloc[-1]))
-            currency_change.append([window_df.iloc[-1].time, currency1, currency2])
-            sums.append(currency1 * window_df.iloc[0][by] + currency2)
+            values.append(new_currency1 + new_currency2 / float(window_df[by].iloc[-1]))
+            currency_change.append([window_df.iloc[-1].time, new_currency1, new_currency2])
+            sums.append(new_currency1 * window_df.iloc[0][by] + new_currency2)
             # print("2 for 1", '\tmean: ', window_df[by].mean(), '\tC1: ', currency1, '\tC2: ', currency2, '\tValue: ',
             #       currency1 + currency2 * window_df[by].mean())
+            currency1 = new_currency1
+            currency2 = new_currency2
         else:
             pass
             # print('Nothing Traded')
@@ -192,7 +196,7 @@ class OrderBook(object):
 
         self.update(1)
 
-    def update(self, Hz):
+    def update(self, Hz=None):
         # while True:
         self.updateOrderBook()
             # sleep(Hz)
