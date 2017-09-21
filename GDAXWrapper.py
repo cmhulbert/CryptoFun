@@ -246,7 +246,7 @@ class OrderBook(object):
         line1, = ax.plot(sells.price, sells.cumulative_volume, c='red')
         line2, = ax.plot(buys.price, buys.cumulative_volume, c='green')
         # ax.fill(buys.price, buys.cumulative_volume, 'green', sells.price, sells.cumulative_volume, red')
-        labels = ['sells', 'buys']
+        labels = ['offers', 'bids']
         lines, _ = ax.get_legend_handles_labels()
         ax.legend(lines, labels, loc='best')
         if log:
