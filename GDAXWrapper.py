@@ -8,6 +8,8 @@ import numpy as np
 # import matplotlib.pyplot as plt
 # import matplotlib.animation as animation
 from pylab import *
+from sklearn.svm import SVR
+
 
 def getHistoricRate(crypto='BTC', currency='USD',  granularity=200, start=None, end=None):
     client = gdax.PublicClient()
@@ -164,7 +166,7 @@ def simulateGeneration(dataframe, params, generationSize=10, previous_best = Non
                 mutated_params['window'] = 67
             # mutated_params['window'] = 241#np.random.choice([400,500,600])
             # mutated_params['window'] = np.random.choice([int(x*params['window']) for x  in [.5, .6, .7, .8, .9 , 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]])
-            currency_change, params = simulateModel(dataframe, window=mutated_params['window'],
+            currency_change, new_params = simulateModel(dataframe, window=mutated_params['window'],
                                            topFraction=mutated_params['topFraction'],
                                            bottomFraction=mutated_params['bottomFraction'],
                                            tradeFraction=mutated_params['tradeFraction'])
@@ -178,7 +180,8 @@ def simulateGeneration(dataframe, params, generationSize=10, previous_best = Non
             if float(max_column.iloc[-1]) > float(best_max.iloc[-1]):
             # if float(values.mean()) > float(best_values.mean()):
             #     print(sums.iloc[-1], best_sums.iloc[-1])
-                best_parameters = params
+                best_parameters = new_params
+                params = new_params
                 best_max = pd.DataFrame(max_column)
                 best_currency_change = currency_change
                 NextGen = False
@@ -186,6 +189,23 @@ def simulateGeneration(dataframe, params, generationSize=10, previous_best = Non
                 print(' Reached Sibling Max Limit.')
                 return best_currency_change, best_parameters
     return best_currency_change, best_parameters
+
+
+def SupportVectorRegression(xdata, ydata, kernel='rbf', C=1e3, gamma=False):
+    if not gamma:
+        svr = SVR(kernel=kernel, C=C)
+    else:
+        svr = SVR(kernel=kernel, C=C, gamma=gamma)
+    svr.fit(xdata, ydata)
+    prediction = svr.predict(xdata)
+    plt.scatter(xdata, ydata, color='blac', label='Data')
+    plt.plot(xdata, prediction, color = 'red', label = '{} model'.format(kernel))
+    plt.xlabel('Data')
+    plt.ylabel('Price')
+    plt.legend()
+    plt.show()
+
+    return
 
 
 class WebsocketClient(object):
@@ -324,15 +344,21 @@ def main():
     o = o[o.time > int(o[o.open > .04].iloc[0].time)]
     o_train = o.iloc[:int(len(o) * (2 / 3))]
     o_validate = o.iloc[int(len(o) * (2 / 3)) + 1:]
-    trajectory, params = simulateModel(o_train, len(o) / 365)
-    trajectory, params = simulateGeneration(o_train, params)
+    # trajectory, params = simulateModel(o_train, len(o) / 365)
+    # trajectory, params = simulateGeneration(o_train, params)
     # values, params = simulateGeneration(o_train, params)
     # values, params = simulateGeneration(o_train, params)
     # values, params = simulateGeneration(o_train, params)
     # values, params = simulateGeneration(o_train, params)
     # df.to_csv('values.df', header=None, index=None)
     print('Done!')
-    return trajectory, params
+    # return trajectory, params
+
+    time = o_train.time
+    price = o_train.open/o_train.open.mean()
+    time = np.array(time)
+    price = np.array(price)
+    SupportVectorRegression(time, price, 'rbf', 1e3, .1)
 
 if __name__=='__main__':
     main()
