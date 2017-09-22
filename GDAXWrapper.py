@@ -78,11 +78,10 @@ def simulateModel(dataframe, window=241, principal=1, topFraction=.001, bottomFr
     ## initial fraction to trade with when a condition is met
     tradeFraction = tradeFraction
     previous_mean = None
-    update_interval = 0 ## Number of entries before to check mean change
     ## move through timeseries data one value at a time
     values = [currency1 + currency2 / dataframe.iloc[0][by]]
     norm_values = [(currency2 - dataframe.iloc[0][by]) + ((currency1 * dataframe.iloc[0][by]) - dataframe.iloc[0][by])]
-    for i in range(int(len(dataframe)-window-1)):
+    for i in range(0,int(len(dataframe)-window-1),window):
         if previous_mean is None:
             start = int(1)
             end = int(start + window)
@@ -90,11 +89,6 @@ def simulateModel(dataframe, window=241, principal=1, topFraction=.001, bottomFr
             window_mean = window_df[by].mean()
             previous_mean = window_mean
             continue
-        if update_interval < window:
-            update_interval += 1
-            # values.append(currency1 + currency2 * window_df[by].mean())
-            continue
-        update_interval = 0
         start = int(i + window +1)
         end = int(start+window)
         window_df = dataframe.iloc[start:end]
