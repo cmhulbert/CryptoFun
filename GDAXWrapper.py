@@ -198,7 +198,7 @@ def SupportVectorRegression(xdata, ydata, kernel='rbf', C=1e3, gamma=False):
         svr = SVR(kernel=kernel, C=C, gamma=gamma)
     svr.fit(xdata, ydata)
     prediction = svr.predict(xdata)
-    plt.scatter(xdata, ydata, color='blac', label='Data')
+    plt.scatter(xdata, ydata, color='black', label='Data')
     plt.plot(xdata, prediction, color = 'red', label = '{} model'.format(kernel))
     plt.xlabel('Data')
     plt.ylabel('Price')
@@ -340,7 +340,7 @@ def main():
     # o.plot().show()
     # l = getHistoricRate()
     # o = bulkHistoryicalRate(crypto='ETH', currency='BTC', start=[2017, 1, 1], end=[2017, 2, 1], granularity=200)
-    o = pd.read_csv('test.csv', sep='\t')
+    o = pd.read_csv('two_years.csv', sep='\t')
     o = o[o.time > int(o[o.open > .04].iloc[0].time)]
     o_train = o.iloc[:int(len(o) * (2 / 3))]
     o_validate = o.iloc[int(len(o) * (2 / 3)) + 1:]
@@ -356,7 +356,7 @@ def main():
 
     time = o_train.time
     price = o_train.open/o_train.open.mean()
-    time = np.array(time)
+    time = np.array(time).reshape(-1.1)
     price = np.array(price)
     SupportVectorRegression(time, price, 'rbf', 1e3, .1)
 
