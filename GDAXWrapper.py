@@ -79,6 +79,7 @@ def simulateModel(dataframe, window=241, principal=1, topFraction=.001, bottomFr
     update_interval = 0 ## Number of entries before to check mean change
     ## move through timeseries data one value at a time
     values = [currency1 + currency2 / dataframe.iloc[0][by]]
+    norm_values = [(currency2 - dataframe.iloc[0][by]) + ((currency1 * dataframe.iloc[0][by]) - dataframe.iloc[0][by])]
     for i in range(int(len(dataframe)-window-1)):
         if previous_mean is None:
             start = int(1)
@@ -97,48 +98,51 @@ def simulateModel(dataframe, window=241, principal=1, topFraction=.001, bottomFr
         window_df = dataframe.iloc[start:end]
         window_mean = window_df[by].mean()
         if window_mean > previous_mean*(1+topFraction):
+            mean_exchange_rate = window_df[by].mean()
+            last_exchange_rate = window_df[by].iloc[-1]
             ## trade curr1 -> curr2
             new_currency1 = currency1*(1-tradeFraction)
-            new_currency2 = currency2 + currency1*tradeFraction*window_df[by].mean()
+            new_currency2 = currency2 + currency1*tradeFraction*mean_exchange_rate
             #tradeFraction = tradeFraction*.9
-            values.append(new_currency1 + new_currency2 / float(window_df[by].iloc[-1]))
+            values.append(new_currency1 + new_currency2 / float(last_exchange_rate))
+            norm_values.append((new_currency2 - last_exchange_rate) +((new_currency1 * last_exchange_rate) - last_exchange_rate))
             currency_change.append([window_df.iloc[-1].time, new_currency1, new_currency2])
             sums.append(new_currency1 * window_df.iloc[0][by] + new_currency2)
-            # print("Traded 1 for 2 at: " + window_df[by].mean() + '\tC1(%f)\tC2(%f)\tValue(%f)' % (currency1, currency2, currency1+currency2*window_df[by].mean()))
-            # print("1 for 2", '\tmean: ', window_df[by].mean(), '\tC1: ', currency1, '\tC2: ', currency2, '\tValue: ',
-            #       currency1 + currency2 * window_df[by].mean())
             currency1 = new_currency1
             currency2 = new_currency2
         elif window_mean < previous_mean*(1-bottomFraction):
+            mean_exchange_rate = window_df[by].mean()
+            last_exchange_rate = window_df[by].iloc[-1]
             ## trade curr@ -> curr1
             new_currency2 = currency2 * (1 - tradeFraction)
-            new_currency1 = currency1 + currency2*tradeFraction*(1.0/window_df[by].mean())
+            new_currency1 = currency1 + currency2*tradeFraction*(1.0/mean_exchange_rate)
             #tradeFraction = tradeFraction + (1-tradeFraction)*.1
-            values.append(new_currency1 + new_currency2 / float(window_df[by].iloc[-1]))
+            values.append(new_currency1 + new_currency2 / float(last_exchange_rate))
+            norm_values.append(
+                (new_currency2 - last_exchange_rate) + ((new_currency1 * last_exchange_rate) - last_exchange_rate))
             currency_change.append([window_df.iloc[-1].time, new_currency1, new_currency2])
             sums.append(new_currency1 * window_df.iloc[0][by] + new_currency2)
-            # print("2 for 1", '\tmean: ', window_df[by].mean(), '\tC1: ', currency1, '\tC2: ', currency2, '\tValue: ',
-            #       currency1 + currency2 * window_df[by].mean())
             currency1 = new_currency1
             currency2 = new_currency2
         else:
             pass
-            # print('Nothing Traded')
-        # previous_mean = window_mean
-        # values.append(currency1 + currency2 * window_df[by].mean())
     params = {'window':window, 'topFraction':topFraction, 'bottomFraction':bottomFraction, 'tradeFraction':tradeFraction}
     values_df = pd.DataFrame(values)
     sums_df = pd.DataFrame(sums)
-    currency_change_df = pd.DataFrame(currency_change, columns=['time', 'currency1', 'currency2'])
+    norm_vals_df = pd.DataFrame(norm_values)
+    currency_change_df = pd.DataFrame(currency_change, columns=['time', 'curr1', 'curr2'])
     currency_change_df['value'] = values_df
     currency_change_df['sums'] = sums_df
+    currency_change_df['norm'] = norm_vals_df
     return currency_change_df, params
 
 
-def simulateGeneration(dataframe, params, generationSize=10, previous_best = 0.0):
-    best_values = pd.DataFrame([previous_best])
-    best_sums = pd.DataFrame([previous_best])
-    best_AUC = 0
+def simulateGeneration(dataframe, params, generationSize=10, previous_best = None, col_to_max='norm'):
+    if previous_best is None:
+        best_max = pd.DataFrame([0.0])
+        best_sums = pd.DataFrame([0.0])
+    best_local_max = 0
+    best_local_parameters = None
     best_parameters = None
     # params['window'] = 100
     best_currency_change = None
@@ -164,19 +168,20 @@ def simulateGeneration(dataframe, params, generationSize=10, previous_best = 0.0
                                            topFraction=mutated_params['topFraction'],
                                            bottomFraction=mutated_params['bottomFraction'],
                                            tradeFraction=mutated_params['tradeFraction'])
-            values = currency_change['value']
+            max_column = currency_change[col_to_max]
+            if previous_best is None:
+                best_max.iloc[-1] = max_column.iloc[-1]
+                previous_best = 0.0
+            # values = currency_change['value']
             sums = currency_change['sums']
-            print("Sibling %s: %s %s" % (sibling_count, round(float(values.iloc[-1]),5), round(float(best_values.iloc[-1]), 5)))
-            if float(values.iloc[-1]) > float(best_values.iloc[-1]):
+            print("Sibling %s: %s %s" % (sibling_count, round(float(max_column.iloc[-1]),5), round(float(best_max.iloc[-1]), 5)))
+            if float(max_column.iloc[-1]) > float(best_max.iloc[-1]):
             # if float(values.mean()) > float(best_values.mean()):
             #     print(sums.iloc[-1], best_sums.iloc[-1])
                 best_parameters = params
-                best_values = pd.DataFrame(values)
+                best_max = pd.DataFrame(max_column)
                 best_currency_change = currency_change
                 NextGen = False
-            elif float(values.iloc[-1]) > float(local_sums.iloc[-1]):
-                local_sums = values
-                params = mutated_params
             if sibling_count > 99:
                 print(' Reached Sibling Max Limit.')
                 return best_currency_change, best_parameters
@@ -330,7 +335,7 @@ def main():
     return trajectory, params
 
 if __name__=='__main__':
-    # main()
-    ob = OrderBook()
+    main()
+    # ob = OrderBook()
     # bulkHistoryicalRate('ETH', 'BTC', (2016,1,1), (2016,1,2), granularity=100)
     # getHistoricRate(start='2015-01-01T12:00:00')
