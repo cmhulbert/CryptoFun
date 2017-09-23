@@ -185,21 +185,32 @@ def simulateGeneration(dataframe, params, generationSize=10, previous_best = Non
     return best_currency_change, best_parameters
 
 
-def SupportVectorRegression(xdata, ydata, kernel='rbf', C=1e3, gamma=False):
+def SupportVectorRegression(xdata, ydata, kernel='rbf', C=1e3, gamma=False, testx=None, testy=None):
+    from time import time
+    t1 = time()
     if not gamma:
         svr = SVR(kernel=kernel, C=C)
     else:
         svr = SVR(kernel=kernel, C=C, gamma=gamma)
     svr.fit(xdata, ydata)
     prediction = svr.predict(xdata)
-    plt.scatter(xdata, ydata, color='black', label='Data')
-    plt.plot(xdata, prediction, color = 'red', label = '{} model'.format(kernel))
-    plt.xlabel('Data')
+    print(time() - t1)
+    plt.subplot(211)
+    plt.scatter(xdata, ydata, color='black', label='Training Data')
+    plt.plot(xdata, prediction, color = 'red', label = '{} Training'.format(kernel))
+    plt.xlabel('Date')
     plt.ylabel('Price')
     plt.legend()
+    # plt.show()
+    if testx is not None and testy is not None:
+        plt.subplot(212)
+        plt.scatter(testx, testy, color='black', label="Test Data")
+        plt.plot(testx, svr.predict(testx), color='red', label = '{} Validation'.format(kernel))
+        plt.xlabel('Date')
+        plt.ylabel('Price')
+        plt.legend()
     plt.show()
-
-    return
+    return svr, plt
 
 
 class WebsocketClient(object):
@@ -328,34 +339,64 @@ class OrderBook(object):
                 log_df.to_csv(outputFile + '.tsv', sep='\t', index=False)
             print('Logging Canceled"')
 
+def aggregatePreviousWindow(data, window):
+    data2 = []
+    for i in range(window, len(data)):
+        data2.append(data.iloc[i-window:i].mean())
+    data2_df = pd.DataFrame(data2)
+    return data2_df
 
-def main():
-    # o = OrderBook('BTC-USD')
-    # o.plot().show()
-    # l = getHistoricRate()
-    # o = bulkHistoryicalRate(crypto='ETH', currency='BTC', start=[2017, 1, 1], end=[2017, 2, 1], granularity=200)
-    o = pd.read_csv('two_years.csv', sep='\t')
+
+def main(test=False):
+    o = pd.read_csv('two_years.tsv', sep='\t')
     o = o[o.time > int(o[o.open > .04].iloc[0].time)]
-    o_train = o.iloc[:int(len(o) * (2 / 3))]
-    o_validate = o.iloc[int(len(o) * (2 / 3)) + 1:]
-    # trajectory, params = simulateModel(o_train, len(o) / 365)
-    # trajectory, params = simulateGeneration(o_train, params)
-    # values, params = simulateGeneration(o_train, params)
-    # values, params = simulateGeneration(o_train, params)
-    # values, params = simulateGeneration(o_train, params)
-    # values, params = simulateGeneration(o_train, params)
-    # df.to_csv('values.df', header=None, index=None)
-    print('Done!')
-    # return trajectory, params
-
+    o_train = o.iloc[:int(len(o) * (1 / 2))]
+    o_validate = o.iloc[int(len(o) * (1 / 2)) + 1:]
     time = o_train.time
-    price = o_train.open/o_train.open.mean()
-    time = np.array(time).reshape(-1.1)
-    price = np.array(price)
-    SupportVectorRegression(time, price, 'rbf', 1e3, .1)
+    time = np.array(time)
+    time = time.reshape(-1,1)
+    time = time/time.mean()
+    time_filt = [time[x] for x in range(len(time)) if x%100==0]
+    price_df = o_train.open
+    price = np.array(price_df)
+    price = price.reshape(-1,1)
+    price = price/price.mean()
+    price_filt = [price[x] for x in range(len(price)) if x%100==0]
+    # price_ag = aggregatePreviousWindow(price_df, window=50)
+    # price_ag = np.array(price_ag)
+    # price_ag = price_ag.reshape(-1, 1)
+    # price_ag = price_ag / price_ag.mean()
+    # mod = int(len(price_ag)/len(price_filt))
+    price_ag_filt = [price[x-window:x].mean() for x in range(len(price_ag)) if x % mod == 0]
+    if len(price_filt) != len(price_ag_filt):
+        price_filt = price_filt[:len(price_ag_filt)]
+    if test:
+        validate_time = o_validate.time
+        validate_time = np.array(validate_time)
+        validate_time = validate_time.reshape(-1, 1)
+        validate_time = validate_time / validate_time.mean()
+        validate_time_filt = [validate_time[x] for x in range(len(validate_time)) if x % 100 == 0]
+        validate_price_df = o_validate.open
+        validate_price = np.array(validate_price_df)
+        validate_price = validate_price.reshape(-1, 1)
+        validate_price = validate_price / validate_price.mean()
+        validate_price_filt = [validate_price[x] for x in range(len(validate_price)) if x % 100 == 0]
+
+        validate_price_ag = aggregatePreviousWindow(validate_price_df, window=50)
+        validate_price_ag = np.array(validate_price_ag)
+        validate_price_ag = validate_price_ag.reshape(-1, 1)
+        validate_price_ag = validate_price_ag / validate_price_ag.mean()
+        mod = int(len(validate_price_ag) / len(validate_price_filt))
+        validate_price_ag_filt = [validate_price_ag[x] for x in range(len(validate_price_ag)) if x % mod == 0]
+        if len(validate_price_filt) != len(validate_price_ag_filt):
+            validate_price_filt = validate_price_filt[:len(validate_price_ag_filt)]
+
+        svr, plt = SupportVectorRegression(price_ag_filt, price_filt, 'rbf', .1, 1e6, testx=validate_price_ag_filt, testy=validate_price_filt)
+    else:
+        svr, plt = SupportVectorRegression(time_filt, price_filt, 'rbf', 1, 10000)
 
 if __name__=='__main__':
-    main()
+    main(True)
     # ob = OrderBook()
     # bulkHistoryicalRate('ETH', 'BTC', (2016,1,1), (2016,1,2), granularity=100)
     # getHistoricRate(start='2015-01-01T12:00:00')
